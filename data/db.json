@@ -8,7 +8,9 @@
     "lossPerDayWan": 1.2,
     "levelPrecision": 0.01,
     "inflowAttentionFlow": 120,
-    "inflowSeriousFlow": 260
+    "inflowSeriousFlow": 260,
+    "deviationTolerancePct": 5,
+    "deviationShiftDays": 7
   },
   "reservoirs": [
     {

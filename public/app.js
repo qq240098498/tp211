@@ -6,9 +6,17 @@
 
   /* ================= 常量与工具 ================= */
 
-  var VIEW_IDS = ['overview', 'reservoirs', 'water', 'orders', 'balance'];
+  var VIEW_IDS = ['overview', 'reservoirs', 'water', 'orders', 'deviation', 'balance'];
   var ORDER_STATUSES = ['已下达', '执行中', '已完成', '已撤销'];
   var RESERVOIR_STATUSES = ['运行', '检修'];
+  /* 分类的键与顺序与接口一致；接口没返回前，筛选下拉先用这份兜底 */
+  var DEVIATION_CATEGORIES = [
+    { key: 'over', name: '放多了' },
+    { key: 'under', name: '放少了' },
+    { key: 'shifted', name: '时段错开了' },
+    { key: 'match', name: '基本符合' },
+    { key: 'nodata', name: '无数据' }
+  ];
 
   function el(id) { return document.getElementById(id); }
   function qs(sel, root) { return (root || document).querySelector(sel); }
@@ -127,6 +135,7 @@
     levels: [],
     flows: { inflow: [], release: [] },
     orders: [],
+    deviation: null,
     balance: null,
     expanded: { reservoir: '', level: '', flow: '', order: '' },
     reservoirDetail: null,
@@ -137,6 +146,7 @@
       reservoirs: { basin: '', status: '', keyword: '' },
       water: { reservoirId: '', from: '', to: '' },
       orders: { reservoirId: '', status: '' },
+      deviation: { reservoirId: '', status: '', category: '' },
       balance: { reservoirId: '', from: '2026-05-01', to: '2026-05-10' }
     }
   };
@@ -243,6 +253,10 @@
       } else if (view === 'orders') {
         state.orders = await api('GET', '/api/orders' + ordersQuery());
         renderOrders();
+      } else if (view === 'deviation') {
+        state.deviation = await api('GET', '/api/deviation' + deviationQuery());
+        renderSidebar();
+        renderDeviation();
       } else if (view === 'balance') {
         renderBalance();
       }
@@ -359,6 +373,23 @@
       html.push('<div class="side-block"><h3>口径</h3><ul class="side-list">');
       html.push('<li>实际均值与偏差取接口</li>');
       html.push('<li>删除一律两步确认</li>');
+      html.push('</ul></div>');
+    } else if (view === 'deviation') {
+      var cats = (state.deviation && state.deviation.categories && state.deviation.categories.length)
+        ? state.deviation.categories
+        : DEVIATION_CATEGORIES;
+      html.push('<div class="side-block">');
+      html.push('<h3>筛选偏差分析</h3>');
+      html.push('<label class="field"><span>水库</span><select data-filter-key="reservoirId" data-filter-scope="deviation">' + reservoirOptions(f.reservoirId) + '</select></label>');
+      html.push('<label class="field"><span>状态</span><select data-filter-key="status" data-filter-scope="deviation">' + stringOptions(ORDER_STATUSES, f.status, '全部状态') + '</select></label>');
+      html.push('<label class="field"><span>分类</span><select data-filter-key="category" data-filter-scope="deviation">' + optionsHtml(cats.map(function (c) { return { value: c.key, label: c.name }; }), f.category, '全部分类') + '</select></label>');
+      html.push('<button type="button" class="btn btn-ghost btn-sm" data-action="reset-filter" data-scope="deviation">重置筛选</button>');
+      html.push('</div>');
+      html.push('<div class="side-block"><h3>口径</h3><ul class="side-list">');
+      html.push('<li>要求值、实际值、偏差与分类都取接口</li>');
+      html.push('<li>分类合计按水库与状态筛选后求和</li>');
+      html.push('<li>点分类卡片筛明细表</li>');
+      html.push('<li>容差与错开判定天数在设置里改</li>');
       html.push('</ul></div>');
     } else if (view === 'balance') {
       html.push('<div class="side-block">');
@@ -785,6 +816,82 @@
     tbody.innerHTML = html.join('');
   }
 
+  /* ================= 偏差分析 ================= */
+
+  function deviationQuery() {
+    var f = state.filters.deviation;
+    return queryString({ reservoirId: f.reservoirId, status: f.status, category: f.category });
+  }
+
+  /* 带符号显示偏差：正数补 +，空值显示 — */
+  function signedText(value) {
+    if (value === null || value === undefined || value === '') return '—';
+    var n = Number(value);
+    if (!Number.isFinite(n)) return String(value);
+    return (n > 0 ? '+' : '') + n;
+  }
+
+  function deviationTag(key, name) {
+    var cls = 'tag';
+    if (key === 'over') cls = 'tag is-over';
+    else if (key === 'under') cls = 'tag is-warn';
+    else if (key === 'shifted') cls = 'tag is-strong';
+    else if (key === 'match') cls = 'tag is-ok';
+    return '<span class="' + cls + '">' + esc(dash(name)) + '</span>';
+  }
+
+  function renderDeviation() {
+    var d = state.deviation;
+    var cardsBox = el('deviationCards');
+    var tbody = el('deviationRows');
+    var colspan = columnCount('deviationRows');
+    if (!d) {
+      cardsBox.innerHTML = '<p class="empty">偏差分析还在加载…</p>';
+      tbody.innerHTML = emptyRow(colspan, '数据还在加载…');
+      el('deviationCount').textContent = '共 0 条';
+      return;
+    }
+    var rows = d.orders || [];
+    el('deviationCount').textContent = '共 ' + rows.length + ' 条';
+
+    cardsBox.innerHTML = (d.categories || []).map(function (c) {
+      var accent = c.key === 'over' || c.key === 'under' || c.key === 'shifted';
+      return metricCard(
+        c.name,
+        c.count + ' 条',
+        '合计偏差 ' + signedText(c.totalDeviation) + ' m³/s · 水量 ' + signedText(c.totalVolumeWan) + ' 万m³',
+        'deviation',
+        'category=' + c.key,
+        accent
+      );
+    }).join('');
+
+    tbody.innerHTML = rows.length ? rows.map(function (o) {
+      return '<tr>'
+        + '<td>' + esc(o.code) + '</td>'
+        + '<td>' + esc(dash(o.reservoirName)) + '</td>'
+        + '<td><span class="tag is-strong">' + esc(dash(o.status)) + '</span></td>'
+        + '<td>' + esc(dash(o.windowStart)) + ' 至 ' + esc(dash(o.windowEnd)) + '</td>'
+        + '<td class="num">' + esc(numText(o.targetFlow)) + '</td>'
+        + '<td class="num">' + esc(numText(o.actualMean)) + '</td>'
+        + '<td class="num">' + esc(signedText(o.absDeviation)) + '</td>'
+        + '<td class="num">' + esc(signedText(o.relativeDeviationPct)) + '</td>'
+        + '<td>' + deviationTag(o.category, o.categoryName) + '</td>'
+        + '<td class="num">' + esc(o.releaseCount) + ' 条 · ' + esc(o.coveredDays) + '/' + esc(o.windowDays) + ' 天</td>'
+        + '<td class="num">' + esc(o.outsideCount) + ' 条</td>'
+        + '<td class="num">' + esc(signedText(o.deviationVolumeWan)) + '</td>'
+        + '</tr>';
+    }).join('') : emptyRow(colspan, '没有符合筛选的指令。');
+
+    el('deviationCaliber').innerHTML = [
+      '<li>要求值 = 指令的目标下泄流量（m³/s）；实际值 = 指令时段（含首尾两天）内出库流量记录的算术均值。</li>',
+      '<li>绝对偏差 = 实际值 − 要求值；相对偏差 = 绝对偏差 ÷ 要求值 × 100%。正数是放多了，负数是放少了。</li>',
+      '<li>相对偏差的绝对值不超过 <b>' + esc(d.tolerancePct) + '%</b> 判为基本符合，超出才按方向判为放多了或放少了（容差在设置里改）。</li>',
+      '<li>时段内有出库记录的天数不足一半、且时段前后 <b>' + esc(d.shiftDays) + '</b> 天内有出库记录的，判为时段错开了；前后也没有记录的判为无数据。</li>',
+      '<li>偏差水量 = 绝对偏差 × 时段天数 × 86400 ÷ 10000（万m³）；每张卡片的合计偏差与合计偏差水量按分类求和，全部由接口算出。</li>'
+    ].join('');
+  }
+
   /* ================= 水量平衡 ================= */
 
   function resultItem(label, value, accent) {
@@ -839,6 +946,8 @@
       + '<label class="field"><span>平衡容差（万m³）</span><input type="number" step="0.01" name="balanceToleranceWan" value="' + esc(s.balanceToleranceWan) + '" /><em class="field-msg" data-field-error="balanceToleranceWan" hidden></em></label>'
       + '<label class="field"><span>入库注意流量（m³/s）</span><input type="number" step="0.01" name="inflowAttentionFlow" value="' + esc(s.inflowAttentionFlow) + '" /><em class="field-msg" data-field-error="inflowAttentionFlow" hidden></em></label>'
       + '<label class="field"><span>入库严重流量（m³/s）</span><input type="number" step="0.01" name="inflowSeriousFlow" value="' + esc(s.inflowSeriousFlow) + '" /><em class="field-msg" data-field-error="inflowSeriousFlow" hidden></em></label>'
+      + '<label class="field"><span>偏差容差（%）</span><input type="number" step="0.1" name="deviationTolerancePct" value="' + esc(s.deviationTolerancePct) + '" /><em class="field-msg" data-field-error="deviationTolerancePct" hidden></em></label>'
+      + '<label class="field"><span>错开判定天数</span><input type="number" step="1" name="deviationShiftDays" value="' + esc(s.deviationShiftDays) + '" /><em class="field-msg" data-field-error="deviationShiftDays" hidden></em></label>'
       + '</div>'
       + '<p class="side-note">水量单位 ' + esc(dash(s.volumeUnit)) + '，流量单位 ' + esc(dash(s.flowUnit)) + '，水位精度 ' + esc(dash(s.levelPrecision)) + '。保存后限水位与是否超限会按新汛期重新取接口值。</p>';
     el('modalFoot').innerHTML = '<button type="button" class="btn btn-ghost" data-action="close-modal">取消</button>'
@@ -860,7 +969,7 @@
       var input = qs('[name="' + key + '"]');
       if (input) body[key] = input.value.trim();
     });
-    ['lossPerDayWan', 'balanceToleranceWan', 'inflowAttentionFlow', 'inflowSeriousFlow'].forEach(function (key) {
+    ['lossPerDayWan', 'balanceToleranceWan', 'inflowAttentionFlow', 'inflowSeriousFlow', 'deviationTolerancePct', 'deviationShiftDays'].forEach(function (key) {
       var input = qs('[name="' + key + '"]');
       if (input) body[key] = Number(input.value);
     });
@@ -871,10 +980,12 @@
       toast('设置已保存');
       state.summary = await api('GET', '/api/summary');
       state.levels = await api('GET', '/api/levels' + queryString({ reservoirId: state.filters.water.reservoirId, from: state.filters.water.from, to: state.filters.water.to }));
+      state.deviation = await api('GET', '/api/deviation' + deviationQuery());
       renderTopbar();
       renderSidebar();
       renderOverview();
       renderWater();
+      renderDeviation();
       renderBalance();
     } catch (err) {
       showError(err, el('modalError'));
@@ -1243,6 +1354,7 @@
         return;
       }
       if (scope === 'orders') { reloadView('orders'); return; }
+      if (scope === 'deviation') { reloadView('deviation'); return; }
       if (scope === 'water') { reloadView('water').then(updateWaterCounts); return; }
       if (scope === 'balance') { renderBalance(); }
     });
@@ -1330,6 +1442,7 @@
       state.flows.inflow = await api('GET', '/api/flows?kind=inflow');
       state.flows.release = await api('GET', '/api/flows?kind=release');
       state.orders = await api('GET', '/api/orders');
+      state.deviation = await api('GET', '/api/deviation');
     } catch (err) {
       showError(err);
     }
@@ -1341,6 +1454,7 @@
     renderReservoirs();
     renderWater();
     renderOrders();
+    renderDeviation();
     renderBalance();
   }
 
