@@ -308,6 +308,7 @@ code {
   color: var(--ink-soft);
 }
 .tag.is-over { background: var(--orange-soft); border-color: #eec3b4; color: #8d3315; }
+.tag.is-under { background: #e7f0f8; border-color: #bcd2e8; color: #1f4e79; }
 .tag.is-warn { background: #fdf6e0; border-color: #ecd9a1; color: #7a5a10; }
 .tag.is-serious { background: var(--orange); border-color: var(--orange); color: #fff; }
 .tag.is-ok { background: var(--green-soft); border-color: #bcd8c6; color: #24513a; }
@@ -400,6 +401,13 @@ code {
 .caliber { margin: 0; padding-left: 18px; font-size: 12px; color: var(--ink-soft); }
 .caliber li { margin-bottom: 4px; }
 .caliber b { color: var(--ink); }
+
+/* ---------- 偏差分析 ---------- */
+.dev-over { color: var(--orange); font-weight: 700; }
+.dev-under { color: #1f4e79; font-weight: 700; }
+.dev-shifted { color: #7a5a10; }
+.dev-matched { color: var(--green); }
+.deviation-group-row { cursor: pointer; }
 
 /* ---------- 弹层 ---------- */
 .modal-mask {

@@ -5,6 +5,7 @@ const reservoirs = require('./reservoirs');
 const records = require('./records');
 const water = require('./water');
 const summary = require('./summary');
+const deviations = require('./deviations');
 
 const router = express.Router();
 
@@ -53,6 +54,7 @@ router.post('/flows', withData((data, req) => ({ __save: true, __body: records.s
 router.delete('/flows/:kind/:id', withData((data, req) => ({ __save: true, __body: records.removeFlow(data, req.params.kind === 'release' ? 'release' : 'inflow', req.params.id) })));
 
 router.get('/orders', withData((data, req) => records.listOrders(data, req.query)));
+router.get('/deviations', withData((data, req) => deviations.report(data, req.query)));
 router.post('/orders', withData((data, req) => ({ __save: true, __body: records.createOrder(data, req.body || {}) })));
 router.get('/orders/:id', withData((data, req) => records.decorateOrder(data, records.findOrder(data, req.params.id))));
 router.patch('/orders/:id', withData((data, req) => ({ __save: true, __body: records.updateOrder(data, req.params.id, req.body || {}) })));

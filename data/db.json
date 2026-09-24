@@ -8,7 +8,9 @@
     "lossPerDayWan": 1.2,
     "levelPrecision": 0.01,
     "inflowAttentionFlow": 120,
-    "inflowSeriousFlow": 260
+    "inflowSeriousFlow": 260,
+    "flowDeviationTolerance": 5,
+    "flowDeviationPercent": 10
   },
   "reservoirs": [
     {
@@ -1742,6 +1744,114 @@
       "type": "发电",
       "operator": "值班员",
       "remark": ""
+    },
+    {
+      "id": "out-0058",
+      "reservoirId": "res-0002",
+      "date": "2026-08-10",
+      "flow": 38,
+      "type": "供水",
+      "operator": "值班员",
+      "remark": ""
+    },
+    {
+      "id": "out-0059",
+      "reservoirId": "res-0002",
+      "date": "2026-08-11",
+      "flow": 38,
+      "type": "供水",
+      "operator": "值班员",
+      "remark": ""
+    },
+    {
+      "id": "out-0060",
+      "reservoirId": "res-0002",
+      "date": "2026-08-12",
+      "flow": 39,
+      "type": "供水",
+      "operator": "值班员",
+      "remark": ""
+    },
+    {
+      "id": "out-0061",
+      "reservoirId": "res-0002",
+      "date": "2026-08-13",
+      "flow": 38,
+      "type": "供水",
+      "operator": "值班员",
+      "remark": ""
+    },
+    {
+      "id": "out-0062",
+      "reservoirId": "res-0002",
+      "date": "2026-08-14",
+      "flow": 37,
+      "type": "供水",
+      "operator": "值班员",
+      "remark": ""
+    },
+    {
+      "id": "out-0063",
+      "reservoirId": "res-0001",
+      "date": "2026-07-16",
+      "flow": 78,
+      "type": "泄洪",
+      "operator": "值班员",
+      "remark": ""
+    },
+    {
+      "id": "out-0064",
+      "reservoirId": "res-0001",
+      "date": "2026-07-17",
+      "flow": 80,
+      "type": "泄洪",
+      "operator": "值班员",
+      "remark": ""
+    },
+    {
+      "id": "out-0065",
+      "reservoirId": "res-0001",
+      "date": "2026-07-18",
+      "flow": 80,
+      "type": "泄洪",
+      "operator": "值班员",
+      "remark": ""
+    },
+    {
+      "id": "out-0066",
+      "reservoirId": "res-0001",
+      "date": "2026-07-19",
+      "flow": 82,
+      "type": "泄洪",
+      "operator": "值班员",
+      "remark": ""
+    },
+    {
+      "id": "out-0067",
+      "reservoirId": "res-0001",
+      "date": "2026-07-20",
+      "flow": 80,
+      "type": "泄洪",
+      "operator": "值班员",
+      "remark": ""
+    },
+    {
+      "id": "out-0068",
+      "reservoirId": "res-0002",
+      "date": "2026-09-23",
+      "flow": 44,
+      "type": "供水",
+      "operator": "值班员",
+      "remark": ""
+    },
+    {
+      "id": "out-0069",
+      "reservoirId": "res-0002",
+      "date": "2026-09-24",
+      "flow": 46,
+      "type": "供水",
+      "operator": "值班员",
+      "remark": ""
     }
   ],
   "orders": [
@@ -1818,6 +1928,62 @@
           "at": "2026-05-05"
         }
       ]
+    },
+    {
+      "id": "ord-0005",
+      "code": "ZL-0005",
+      "reservoirId": "res-0002",
+      "issuedAt": "2026-08-10",
+      "targetFlow": 30,
+      "windowStart": "2026-08-10",
+      "windowEnd": "2026-08-14",
+      "status": "已完成",
+      "reason": "下游应急供水按 30 控泄",
+      "issuer": "调度科",
+      "remark": "渠道检修后实际放量偏大",
+      "attachments": []
+    },
+    {
+      "id": "ord-0006",
+      "code": "ZL-0006",
+      "reservoirId": "res-0001",
+      "issuedAt": "2026-07-13",
+      "targetFlow": 80,
+      "windowStart": "2026-07-13",
+      "windowEnd": "2026-07-17",
+      "status": "已完成",
+      "reason": "腾库迎峰按 80 预泄五天",
+      "issuer": "调度科",
+      "remark": "闸门操作延后三天，泄流主体错到时段之后",
+      "attachments": []
+    },
+    {
+      "id": "ord-0007",
+      "code": "ZL-0007",
+      "reservoirId": "res-0002",
+      "issuedAt": "2026-09-23",
+      "targetFlow": 45,
+      "windowStart": "2026-09-23",
+      "windowEnd": "2026-09-27",
+      "status": "执行中",
+      "reason": "秋旱供水按 45 控泄",
+      "issuer": "调度科",
+      "remark": "",
+      "attachments": []
+    },
+    {
+      "id": "ord-0008",
+      "code": "ZL-0008",
+      "reservoirId": "res-0001",
+      "issuedAt": "2026-08-03",
+      "targetFlow": 100,
+      "windowStart": "2026-08-03",
+      "windowEnd": "2026-08-05",
+      "status": "已完成",
+      "reason": "台风前预泄",
+      "issuer": "调度科",
+      "remark": "实际出库记录缺失，待补登",
+      "attachments": []
     }
   ]
 }

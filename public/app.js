@@ -6,7 +6,7 @@
 
   /* ================= 常量与工具 ================= */
 
-  var VIEW_IDS = ['overview', 'reservoirs', 'water', 'orders', 'balance'];
+  var VIEW_IDS = ['overview', 'reservoirs', 'water', 'orders', 'deviations', 'balance'];
   var ORDER_STATUSES = ['已下达', '执行中', '已完成', '已撤销'];
   var RESERVOIR_STATUSES = ['运行', '检修'];
 
@@ -127,8 +127,9 @@
     levels: [],
     flows: { inflow: [], release: [] },
     orders: [],
+    deviations: null,
     balance: null,
-    expanded: { reservoir: '', level: '', flow: '', order: '' },
+    expanded: { reservoir: '', level: '', flow: '', order: '', deviation: '' },
     reservoirDetail: null,
     curveDraft: null,
     curveQuery: { reservoirId: '', byLevel: null, byCapacity: null },
@@ -137,6 +138,7 @@
       reservoirs: { basin: '', status: '', keyword: '' },
       water: { reservoirId: '', from: '', to: '' },
       orders: { reservoirId: '', status: '' },
+      deviations: { reservoirId: '', category: '' },
       balance: { reservoirId: '', from: '2026-05-01', to: '2026-05-10' }
     }
   };
@@ -243,6 +245,9 @@
       } else if (view === 'orders') {
         state.orders = await api('GET', '/api/orders' + ordersQuery());
         renderOrders();
+      } else if (view === 'deviations') {
+        state.deviations = await api('GET', '/api/deviations' + deviationsQuery());
+        renderDeviations();
       } else if (view === 'balance') {
         renderBalance();
       }
@@ -291,6 +296,38 @@
 
   function stringOptions(values, current, allLabel) {
     return optionsHtml(values.map(function (v) { return { value: v, label: v }; }), current, allLabel);
+  }
+
+  var DEVIATION_CATEGORIES = [
+    { value: 'over', label: '放多了' },
+    { value: 'under', label: '放少了' },
+    { value: 'shifted', label: '时段错开了' },
+    { value: 'matched', label: '基本一致' },
+    { value: 'ongoing', label: '时段未结束' },
+    { value: 'noData', label: '暂无实测' },
+    { value: 'revoked', label: '已撤销' }
+  ];
+
+  function deviationCategoryOptions(current) {
+    return optionsHtml(DEVIATION_CATEGORIES, current, '全部类别');
+  }
+
+  function deviationCategoryTag(key, label) {
+    var cls = 'tag';
+    if (key === 'over') cls = 'tag is-over';
+    else if (key === 'under') cls = 'tag is-under';
+    else if (key === 'shifted') cls = 'tag is-warn';
+    else if (key === 'matched') cls = 'tag is-ok';
+    else if (key === 'ongoing') cls = 'tag is-strong';
+    return '<span class="' + cls + '">' + esc(dash(label)) + '</span>';
+  }
+
+  // 带正负号的偏差数字
+  function signedText(value) {
+    if (value === null || value === undefined || value === '') return '—';
+    var n = Number(value);
+    if (!Number.isFinite(n)) return String(value);
+    return (n > 0 ? '+' : '') + String(n);
   }
 
   /* 水位与流量侧栏的条数只局部刷新，不整条重建侧栏（否则会把正在输入的控件换掉） */
@@ -360,6 +397,21 @@
       html.push('<li>实际均值与偏差取接口</li>');
       html.push('<li>删除一律两步确认</li>');
       html.push('</ul></div>');
+    } else if (view === 'deviations') {
+      var d = state.deviations;
+      html.push('<div class="side-block">');
+      html.push('<h3>筛选偏差分析</h3>');
+      html.push('<label class="field"><span>水库</span><select data-filter-key="reservoirId" data-filter-scope="deviations">' + reservoirOptions(f.reservoirId) + '</select></label>');
+      html.push('<label class="field"><span>类别</span><select data-filter-key="category" data-filter-scope="deviations">' + deviationCategoryOptions(f.category) + '</select></label>');
+      html.push('<button type="button" class="btn btn-ghost btn-sm" data-action="reset-filter" data-scope="deviations">重置筛选</button>');
+      html.push('</div>');
+      html.push('<div class="side-block"><h3>分类口径</h3><ul class="side-list">');
+      html.push('<li>绝对偏差 = 实际 − 要求；正为放多、负为放少</li>');
+      html.push('<li>相对偏差 = 绝对偏差 ÷ 要求值</li>');
+      html.push('<li>实测天数不足时段一半，先归「时段错开了」</li>');
+      html.push('<li>超容差才算放多/放少，容差可在设置里改</li>');
+      if (d) html.push('<li>当前容差：' + esc(d.tolerance) + ' m³/s 或 ' + esc(d.tolerancePercent) + '%</li>');
+      html.push('</ul></div>');
     } else if (view === 'balance') {
       html.push('<div class="side-block">');
       html.push('<h3>水量平衡口径</h3><ul class="side-list">');
@@ -415,7 +467,7 @@
         metricCard('超限记录数', s.exceededCount, '点卡去「水位与流量」逐条核对', 'water', 'kind=level', true),
         metricCard('指令数', s.orderCount, '点卡去「调度指令」', 'orders', ''),
         metricCard('执行中加已下达', active, '执行中与已下达合计', 'orders', ''),
-        metricCard('偏差超限指令数', s.orderDeviationCount, '偏差绝对值大于 5 的指令', 'orders', '', true),
+        metricCard('放多/放少指令数', s.orderDeviationCount, '偏差超容差，判为放多了或放少了', 'deviations', '', true),
         metricCard('每天损失', s.lossPerDayWan, '单位 万m³，可去设置里改', 'balance', ''),
         metricCard('容差', s.toleranceWan, '单位 万m³，可去设置里改', 'balance', '')
       ].join('');
@@ -733,7 +785,9 @@
         + '<td>' + esc(dash(o.windowStart)) + ' 至 ' + esc(dash(o.windowEnd)) + '</td>'
         + '<td><span class="tag is-strong">' + esc(dash(o.status)) + '</span></td>'
         + '<td class="num">' + esc(numText(o.actualMean)) + '</td>'
-        + '<td class="num">' + esc(numText(o.deviation)) + '</td>'
+        + '<td class="num dev-' + esc(o.category || '') + '">' + esc(signedText(o.deviation)) + '</td>'
+        + '<td class="num dev-' + esc(o.category || '') + '">' + (o.relDeviation === null || o.relDeviation === undefined ? '—' : esc(signedText(o.relDeviation) + '%')) + '</td>'
+        + '<td>' + deviationCategoryTag(o.category, o.categoryLabel) + '</td>'
         + '<td class="num">' + attachCount + '</td>'
         + '</tr>');
 
@@ -744,6 +798,10 @@
           ['备注', o.remark],
           ['实际均值（接口）', o.actualMean],
           ['偏差（接口）', o.deviation],
+          ['相对偏差（接口）', o.relDeviation === null || o.relDeviation === undefined ? '' : (o.relDeviation + '%')],
+          ['偏差水量（接口，万m³）', o.deviationVolume],
+          ['偏差类别（接口）', o.categoryLabel],
+          ['时段内实测天数', (o.coveredDays === undefined ? '' : (o.coveredDays + ' / ' + o.windowDaysCount))],
           ['时段内出库记录条数', o.releaseCount],
           ['当前状态', o.status]
         ];
@@ -781,6 +839,153 @@
           + '<div class="form-error" data-role="order-error" hidden></div>'
           + '</div></td></tr>');
       }
+    });
+    tbody.innerHTML = html.join('');
+  }
+
+  /* ================= 下泄流量偏差分析 ================= */
+
+  function deviationsQuery() {
+    var f = state.filters.deviations;
+    return queryString({ reservoirId: f.reservoirId, category: f.category });
+  }
+
+  function deviationCardsHtml(report) {
+    if (!report) return '<p class="empty">偏差分析还在加载…</p>';
+    var find = function (key) {
+      return report.groups.filter(function (g) { return g.key === key; })[0] || null;
+    };
+    var over = find('over');
+    var under = find('under');
+    var shifted = find('shifted');
+    var cards = [
+      { label: '考核偏差合计', value: report.assessedCount, foot: '放多 + 放少 + 时段错开', key: '', accent: true },
+      { label: '放多了', value: over ? over.count : 0, foot: over ? ('合计多放 ' + signedText(over.totalAbsDeviation) + ' m³/s') : '', key: 'over' },
+      { label: '放少了', value: under ? under.count : 0, foot: under ? ('合计少放 ' + signedText(under.totalAbsDeviation) + ' m³/s') : '', key: 'under' },
+      { label: '时段错开了', value: shifted ? shifted.count : 0, foot: '实测天数不足时段一半', key: 'shifted' },
+      { label: '基本一致', value: find('matched') ? find('matched').count : 0, foot: '偏差在容差以内', key: 'matched' },
+      { label: '时段未结束 / 暂无实测', value: (find('ongoing') ? find('ongoing').count : 0) + (find('noData') ? find('noData').count : 0), foot: '数据不全，暂不考核', key: '' },
+      { label: '已撤销', value: find('revoked') ? find('revoked').count : 0, foot: '撤销指令不考核', key: 'revoked' },
+      { label: '容差', value: report.tolerance + ' / ' + report.tolerancePercent + '%', foot: '流量容差（m³/s）/ 相对容差，设置里可改', key: '' }
+    ];
+    return cards.map(function (c) {
+      return '<button type="button" class="metric-card' + (c.accent ? ' is-accent' : '') + '" data-action="deviation-filter-card" data-category="' + esc(c.key) + '">'
+        + '<span class="metric-label">' + esc(c.label) + '</span>'
+        + '<span class="metric-value">' + esc(c.value) + '</span>'
+        + '<span class="metric-foot">' + esc(c.foot) + '</span>'
+        + '</button>';
+    }).join('');
+  }
+
+  function renderDeviationGroups(report) {
+    var tbody = el('deviationGroupRows');
+    if (!report) { tbody.innerHTML = emptyRow(5, '数据还在加载…'); return; }
+    tbody.innerHTML = report.groups.map(function (g) {
+      var assessed = g.key === 'over' || g.key === 'under' || g.key === 'shifted' || g.key === 'matched';
+      return '<tr class="deviation-group-row" data-action="deviation-filter-row" data-category="' + esc(g.key) + '">'
+        + '<td>' + deviationCategoryTag(g.key, g.label) + '</td>'
+        + '<td class="num"><b>' + g.count + '</b></td>'
+        + '<td class="num dev-' + esc(g.key) + '">' + (assessed ? esc(signedText(g.totalAbsDeviation)) : '—') + '</td>'
+        + '<td class="num dev-' + esc(g.key) + '">' + (assessed ? esc(signedText(g.totalVolumeWan)) : '—') + '</td>'
+        + '<td class="num">' + (g.avgRelDeviation === null ? '—' : esc(g.avgRelDeviation + '%')) + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  function deviationDailyHtml(row) {
+    var daily = row.daily || [];
+    var dailyRowsHtml = daily.map(function (x) {
+      return '<tr><td>' + esc(x.date) + '</td>'
+        + '<td class="num">' + esc(numText(x.required)) + '</td>'
+        + '<td class="num">' + esc(numText(x.flow)) + '</td>'
+        + '<td class="num dev-' + (x.deviation > 0 ? 'over' : (x.deviation < 0 ? 'under' : 'matched')) + '">' + esc(signedText(x.deviation)) + '</td>'
+        + '<td class="num">' + (x.relDeviation === null ? '—' : esc(signedText(x.relDeviation) + '%')) + '</td>'
+        + '<td class="num">' + esc(x.count) + '</td></tr>';
+    }).join('');
+
+    var missing = row.missingDays || [];
+    var adjacent = row.adjacentReleases || [];
+    var items = [
+      ['指令编号', row.code],
+      ['下达日期', row.issuedAt],
+      ['状态', row.status],
+      ['理由', row.reason],
+      ['执行时段', row.windowStart + ' 至 ' + row.windowEnd + '（共 ' + row.windowDays + ' 天）'],
+      ['实测天数', row.coveredDays + ' / ' + row.windowDays],
+      ['要求下泄（接口）', row.targetFlow],
+      ['实际均值（接口）', row.actualMean],
+      ['绝对偏差（接口）', row.absDeviation],
+      ['相对偏差（接口）', row.relDeviation === null ? '' : (row.relDeviation + '%')],
+      ['偏差水量（接口，万m³）', row.deviationVolume],
+      ['判定类别（接口）', row.categoryLabel]
+    ];
+
+    return '<div class="detail" data-deviation-id="' + esc(row.orderId) + '">'
+      + '<div class="detail-grid">' + items.map(itemHtml).join('') + '</div>'
+      + '<h4>时段内逐日对齐 <span class="card-sub">同一天有多条出库记录先取日均值</span></h4>'
+      + (dailyRowsHtml
+        ? '<table class="mini-table"><thead><tr><th>日期</th><th class="num">要求</th><th class="num">实测日均</th><th class="num">日偏差</th><th class="num">日相对偏差</th><th class="num">记录条数</th></tr></thead><tbody>' + dailyRowsHtml + '</tbody></table>'
+        : '<p class="empty">时段内没有任何出库记录。</p>')
+      + '<h4>缺测与时段外记录</h4>'
+      + '<p class="side-note">缺测日期：' + esc(missing.length ? missing.join('、') : '无') + '</p>'
+      + (adjacent.length
+        ? '<table class="mini-table"><thead><tr><th>时段外日期</th><th class="num">实测日均</th><th>说明</th></tr></thead><tbody>'
+          + adjacent.map(function (x) {
+            var where = x.date < row.windowStart ? '早于时段起 ' + row.windowStart : '晚于时段止 ' + row.windowEnd;
+            return '<tr><td>' + esc(x.date) + '</td><td class="num">' + esc(numText(x.flow)) + '</td><td>' + esc(where) + '</td></tr>';
+          }).join('')
+          + '</tbody></table>'
+        : '<p class="side-note">时段附近没有落在时段外的出库记录。</p>')
+      + '<h4>为什么归到「' + esc(row.categoryLabel) + '」</h4>'
+      + '<ul class="caliber"><li>' + esc(deviationReason(row)) + '</li></ul>'
+      + '</div>';
+  }
+
+  function deviationReason(row) {
+    if (row.category === 'revoked') return '指令已撤销，不参与偏差考核。';
+    if (row.category === 'ongoing') return '时段末日 ' + row.windowEnd + ' 晚于今天，实测天数还不全，等时段结束再考核；当前实测 ' + row.coveredDays + ' 天、均值 ' + row.actualMean + ' m³/s。';
+    if (row.category === 'noData') return '整个执行时段（' + row.windowStart + ' 至 ' + row.windowEnd + '）没有一条出库记录，无法对比，先补登实测。';
+    if (row.category === 'shifted') return '时段共 ' + row.windowDays + ' 天，只有 ' + row.coveredDays + ' 天有实测（不足一半），出库记录与指令时段对不上，偏差先不按放多/放少算。';
+    if (row.category === 'over') return '实际均值 ' + row.actualMean + ' 比要求 ' + row.targetFlow + ' 多 ' + Math.abs(row.absDeviation) + ' m³/s（' + Math.abs(row.relDeviation) + '%），超过容差，判为放多了。';
+    if (row.category === 'under') return '实际均值 ' + row.actualMean + ' 比要求 ' + row.targetFlow + ' 少 ' + Math.abs(row.absDeviation) + ' m³/s（' + Math.abs(row.relDeviation) + '%），超过容差，判为放少了。';
+    return '实际均值 ' + row.actualMean + ' 与要求 ' + row.targetFlow + ' 相差 ' + Math.abs(row.absDeviation) + ' m³/s（' + Math.abs(row.relDeviation) + '%），在容差以内，判为基本一致。';
+  }
+
+  function renderDeviations() {
+    var report = state.deviations;
+    el('deviationCards').innerHTML = deviationCardsHtml(report);
+    renderDeviationGroups(report);
+
+    var tbody = el('deviationRows');
+    var colspan = columnCount('deviationRows');
+    if (!report) {
+      el('deviationCount').textContent = '共 0 条指令';
+      tbody.innerHTML = emptyRow(colspan, '数据还在加载…');
+      return;
+    }
+    el('deviationCount').textContent = '共 ' + report.totalCount + ' 条指令（考核偏差 ' + report.assessedCount + ' 条）';
+    var rows = report.rows || [];
+    if (!rows.length) {
+      tbody.innerHTML = emptyRow(colspan, '没有符合筛选的指令。');
+      return;
+    }
+    var html = [];
+    rows.forEach(function (r) {
+      var expanded = state.expanded.deviation === r.orderId;
+      html.push('<tr class="deviation-row' + (expanded ? ' is-expanded' : '') + '" data-action="toggle-deviation" data-id="' + esc(r.orderId) + '">'
+        + '<td>' + esc(r.code) + '</td>'
+        + '<td>' + esc(dash(r.reservoirName)) + '</td>'
+        + '<td>' + esc(r.windowStart) + ' 至 ' + esc(r.windowEnd) + '</td>'
+        + '<td><span class="tag is-strong">' + esc(dash(r.status)) + '</span></td>'
+        + '<td class="num">' + esc(numText(r.targetFlow)) + '</td>'
+        + '<td class="num">' + esc(numText(r.actualMean)) + '</td>'
+        + '<td class="num dev-' + esc(r.category || '') + '"><b>' + esc(signedText(r.absDeviation)) + '</b></td>'
+        + '<td class="num dev-' + esc(r.category || '') + '">' + (r.relDeviation === null ? '—' : esc(signedText(r.relDeviation) + '%')) + '</td>'
+        + '<td class="num dev-' + esc(r.category || '') + '">' + esc(signedText(r.deviationVolume)) + '</td>'
+        + '<td class="num">' + (r.actualMean === null ? '—' : esc(r.coveredDays + ' / ' + r.windowDays)) + '</td>'
+        + '<td>' + deviationCategoryTag(r.category, r.categoryLabel) + '</td>'
+        + '</tr>');
+      if (expanded) html.push('<tr class="detail-row"><td colspan="' + colspan + '">' + deviationDailyHtml(r) + '</td></tr>');
     });
     tbody.innerHTML = html.join('');
   }
@@ -839,8 +1044,10 @@
       + '<label class="field"><span>平衡容差（万m³）</span><input type="number" step="0.01" name="balanceToleranceWan" value="' + esc(s.balanceToleranceWan) + '" /><em class="field-msg" data-field-error="balanceToleranceWan" hidden></em></label>'
       + '<label class="field"><span>入库注意流量（m³/s）</span><input type="number" step="0.01" name="inflowAttentionFlow" value="' + esc(s.inflowAttentionFlow) + '" /><em class="field-msg" data-field-error="inflowAttentionFlow" hidden></em></label>'
       + '<label class="field"><span>入库严重流量（m³/s）</span><input type="number" step="0.01" name="inflowSeriousFlow" value="' + esc(s.inflowSeriousFlow) + '" /><em class="field-msg" data-field-error="inflowSeriousFlow" hidden></em></label>'
+      + '<label class="field"><span>下泄偏差流量容差（m³/s）</span><input type="number" step="0.01" name="flowDeviationTolerance" value="' + esc(s.flowDeviationTolerance) + '" /><em class="field-msg" data-field-error="flowDeviationTolerance" hidden></em></label>'
+      + '<label class="field"><span>下泄偏差相对容差（%）</span><input type="number" step="0.01" name="flowDeviationPercent" value="' + esc(s.flowDeviationPercent) + '" /><em class="field-msg" data-field-error="flowDeviationPercent" hidden></em></label>'
       + '</div>'
-      + '<p class="side-note">水量单位 ' + esc(dash(s.volumeUnit)) + '，流量单位 ' + esc(dash(s.flowUnit)) + '，水位精度 ' + esc(dash(s.levelPrecision)) + '。保存后限水位与是否超限会按新汛期重新取接口值。</p>';
+      + '<p class="side-note">水量单位 ' + esc(dash(s.volumeUnit)) + '，流量单位 ' + esc(dash(s.flowUnit)) + '，水位精度 ' + esc(dash(s.levelPrecision)) + '。保存后限水位与是否超限会按新汛期重新取接口值；偏差分析会按新容差重新分类。</p>';
     el('modalFoot').innerHTML = '<button type="button" class="btn btn-ghost" data-action="close-modal">取消</button>'
       + '<button type="button" class="btn btn-primary" data-action="save-settings">保存设置</button>';
     el('modalError').setAttribute('hidden', '');
@@ -860,7 +1067,7 @@
       var input = qs('[name="' + key + '"]');
       if (input) body[key] = input.value.trim();
     });
-    ['lossPerDayWan', 'balanceToleranceWan', 'inflowAttentionFlow', 'inflowSeriousFlow'].forEach(function (key) {
+    ['lossPerDayWan', 'balanceToleranceWan', 'inflowAttentionFlow', 'inflowSeriousFlow', 'flowDeviationTolerance', 'flowDeviationPercent'].forEach(function (key) {
       var input = qs('[name="' + key + '"]');
       if (input) body[key] = Number(input.value);
     });
@@ -871,10 +1078,14 @@
       toast('设置已保存');
       state.summary = await api('GET', '/api/summary');
       state.levels = await api('GET', '/api/levels' + queryString({ reservoirId: state.filters.water.reservoirId, from: state.filters.water.from, to: state.filters.water.to }));
+      state.orders = await api('GET', '/api/orders' + ordersQuery());
+      state.deviations = await api('GET', '/api/deviations' + deviationsQuery());
       renderTopbar();
       renderSidebar();
       renderOverview();
       renderWater();
+      renderOrders();
+      renderDeviations();
       renderBalance();
     } catch (err) {
       showError(err, el('modalError'));
@@ -1038,6 +1249,7 @@
   function toggleRow(type, id) {
     if (type === 'level') state.expanded.level = state.expanded.level === id ? '' : id;
     if (type === 'order') state.expanded.order = state.expanded.order === id ? '' : id;
+    if (type === 'deviation') state.expanded.deviation = state.expanded.deviation === id ? '' : id;
     if (type === 'flow') state.expanded.flow = state.expanded.flow === id ? '' : id;
   }
 
@@ -1062,6 +1274,14 @@
     if (action === 'toggle-level') { toggleRow('level', btn.dataset.id); renderWater(); return; }
     if (action === 'toggle-flow') { toggleRow('flow', btn.dataset.kind + ':' + btn.dataset.id); renderWater(); return; }
     if (action === 'toggle-order') { toggleRow('order', btn.dataset.id); renderOrders(); return; }
+    if (action === 'toggle-deviation') { toggleRow('deviation', btn.dataset.id); renderDeviations(); return; }
+    if (action === 'deviation-filter-card' || action === 'deviation-filter-row') {
+      var key = btn.dataset.category || '';
+      state.filters.deviations.category = state.filters.deviations.category === key ? '' : key;
+      renderSidebar();
+      await reloadView('deviations');
+      return;
+    }
 
     if (action === 'delete-level') {
       if (!armDelete(btn)) return;
@@ -1228,6 +1448,7 @@
       if (row.classList.contains('level-row')) { toggleRow('level', row.dataset.id); renderWater(); return; }
       if (row.classList.contains('flow-row')) { toggleRow('flow', row.dataset.kind + ':' + row.dataset.id); renderWater(); return; }
       if (row.classList.contains('order-row')) { toggleRow('order', row.dataset.id); renderOrders(); return; }
+      if (row.classList.contains('deviation-row')) { toggleRow('deviation', row.dataset.id); renderDeviations(); return; }
     });
 
     document.addEventListener('change', function (event) {
@@ -1243,6 +1464,7 @@
         return;
       }
       if (scope === 'orders') { reloadView('orders'); return; }
+      if (scope === 'deviations') { reloadView('deviations'); return; }
       if (scope === 'water') { reloadView('water').then(updateWaterCounts); return; }
       if (scope === 'balance') { renderBalance(); }
     });
@@ -1330,6 +1552,7 @@
       state.flows.inflow = await api('GET', '/api/flows?kind=inflow');
       state.flows.release = await api('GET', '/api/flows?kind=release');
       state.orders = await api('GET', '/api/orders');
+      state.deviations = await api('GET', '/api/deviations');
     } catch (err) {
       showError(err);
     }
@@ -1341,6 +1564,7 @@
     renderReservoirs();
     renderWater();
     renderOrders();
+    renderDeviations();
     renderBalance();
   }
 

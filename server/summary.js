@@ -54,7 +54,7 @@ function overview(data) {
     orderCount: data.orders.length,
     orderStatusCount,
     activeOrders: orders.filter((o) => o.status === '已下达' || o.status === '执行中').length,
-    orderDeviationCount: orders.filter((o) => o.deviation !== null && Math.abs(o.deviation) > 5).length,
+    orderDeviationCount: orders.filter((o) => o.category === 'over' || o.category === 'under').length,
     lossPerDayWan: Number(settings.lossPerDayWan),
     toleranceWan: Number(settings.balanceToleranceWan),
     floodSeason: settings.floodSeasonStart + ' 至 ' + settings.floodSeasonEnd,

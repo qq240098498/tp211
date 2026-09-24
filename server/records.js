@@ -2,6 +2,7 @@ const { AppError } = require('./errors');
 const store = require('./store');
 const water = require('./water');
 const reservoirs = require('./reservoirs');
+const deviations = require('./deviations');
 
 // 水位记录
 function listLevels(data, query) {
@@ -117,16 +118,18 @@ const ORDER_STATUS = ['已下达', '执行中', '已完成', '已撤销'];
 
 function decorateOrder(data, order) {
   const reservoir = data.reservoirs.find((r) => r.id === order.reservoirId);
-  const releases = data.releases.filter(
-    (r) => r.reservoirId === order.reservoirId && r.date >= order.windowStart && r.date <= order.windowEnd
-  );
-  const actualMean = releases.length ? store.round(releases.reduce((s, r) => s + Number(r.flow), 0) / releases.length, 2) : null;
-  const deviation = actualMean === null ? null : store.round(actualMean - Number(order.targetFlow), 2);
+  const analysis = deviations.analyzeOrder(data, order, store.todayIso());
   return Object.assign({}, order, {
     reservoirName: reservoir ? reservoir.name : '',
-    actualMean,
-    deviation,
-    releaseCount: releases.length,
+    actualMean: analysis.actualMean,
+    deviation: analysis.absDeviation,
+    relDeviation: analysis.relDeviation,
+    deviationVolume: analysis.deviationVolume,
+    category: analysis.category,
+    categoryLabel: analysis.categoryLabel,
+    coveredDays: analysis.coveredDays,
+    windowDaysCount: analysis.windowDays,
+    releaseCount: analysis.releaseRecordCount,
     level: reservoir ? water.levelCheck(reservoir, order.targetFlow, order.issuedAt, data.settings) : null,
   });
 }

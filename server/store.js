@@ -14,6 +14,8 @@ const DEFAULT_SETTINGS = {
   levelPrecision: 0.01,
   inflowAttentionFlow: 120,
   inflowSeriousFlow: 260,
+  flowDeviationTolerance: 5,
+  flowDeviationPercent: 10,
 };
 
 function normalize(raw) {
